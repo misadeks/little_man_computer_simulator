@@ -1,8 +1,16 @@
-      INP
-      STA num1
-      INP
-      ADD num1
-      OUT
-      HLT
+loop    LDA number
+        ADD counter
+        OUT
+        STA number
+        LDA counter
+        ADD one
+        STA counter
+        LDA ten
+        SUB counter
+        BRP loop
+        HLT
 
-num1  DAT
+counter DAT 1
+number  DAT 0
+one     DAT 1
+ten     DAT 10

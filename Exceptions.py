@@ -1,0 +1,3 @@
+class UnlabeledDAT(Exception):
+    pass
+

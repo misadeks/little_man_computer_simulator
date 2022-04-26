@@ -1,5 +1,7 @@
 import re
 
+import Exceptions
+
 
 class LittleManComputer:
     def __init__(self):
@@ -112,9 +114,8 @@ class LittleManComputer:
     def __instruction_hlt__(self):
         self.__reset__()
 
-
 class ProgramParser:
-    instruction_names = ['INP', 'OUT', 'LDA', 'STA', 'ADD', 'SUB', 'BRP', 'BRZ', 'BRA', 'HLT']
+    instruction_names = ['INP', 'OUT', 'LDA', 'STA', 'ADD', 'SUB', 'BRP', 'BRZ', 'BRA', 'HLT', 'DAT']
 
     def __init__(self, program_filename):
         self.instruction_pattern = r'^(\w*)\s*(INP|OUT|LDA|STA|ADD|SUB|BRP|BRZ|BRA|HLT|DAT)\s*([a-zA-Z0-9]*)$'
@@ -122,13 +123,13 @@ class ProgramParser:
         with open(program_filename) as file:
             for line in file:
                 if line != '\n':
-                    # self.program.append([x.upper() for x in line.split()])
                     self.program.append(line)
         self.variables = {}
         self.labels = {}
 
     def parse(self):
         self.__parse_dat_labels__()
+        print(self.variables)
         compiled_program = []
         for instruction in self.program:
             compiled_program.append(self.parse_instruction(instruction))
@@ -137,43 +138,49 @@ class ProgramParser:
     def __parse_dat_labels__(self):
         for idx, instruction in enumerate(self.program):
             instruction_match = re.match(self.instruction_pattern, instruction)
-            if 'DAT' == instruction_match[2] and instruction_match is not None:
-                # self.variables[instruction[0]] = [0, idx] if len(instruction) != 3 else [instruction[2], idx]
+            if instruction_match and 'DAT' == instruction_match[2]:
+                if instruction_match[1] == '':
+                    raise Exceptions.UnlabeledDAT
                 self.variables[instruction_match[1]] = \
                     [0, idx] if instruction_match[3] == '' else [instruction_match[3], idx]
-            elif instruction_match[1] != '':
+            elif instruction_match and instruction_match[1] != '':
                 self.labels[instruction_match[1]] = idx
-            # elif instruction[0] not in self.instruction_names:
-            #     self.labels[instruction[0]] = idx
 
     def parse_instruction(self, instruction):
         instruction_match = re.match(self.instruction_pattern, instruction)
+        if not instruction_match:
+            raise Exception # unknown instruction or error
         location = instruction_match[3]
-        match instruction_match[2]:
-            case 'ADD':
-                return '1' + f'{self.variables[location][1]:02d}'
-            case 'SUB':
-                return '2' + f'{self.variables[location][1]:02d}'
-            case 'STA':
-                return '3' + f'{self.variables[location][1]:02d}'
-            case 'LDA':
-                return '5' + f'{self.variables[location][1]:02d}'
-            case 'BRA':
-                return '6' + f'{self.labels[location]:02d}'
-            case 'BRZ':
-                return '7' + f'{self.labels[location]:02d}'
-            case 'BRP':
-                return '8' + f'{self.labels[location]:02d}'
-            case 'INP':
-                return '901'
-            case 'OUT':
-                return '902'
-            case 'HLT':
-                return '000'
-            case 'DAT':
-                return f'{self.variables[instruction_match[1]][0]}'
-            case _:
-                raise Exception # error
+
+        try:
+            match instruction_match[2]:
+                case 'ADD':
+                    return '1' + f'{self.variables[location][1]:02d}'
+                case 'SUB':
+                    return '2' + f'{self.variables[location][1]:02d}'
+                case 'STA':
+                    return '3' + f'{self.variables[location][1]:02d}'
+                case 'LDA':
+                    return '5' + f'{self.variables[location][1]:02d}'
+                case 'BRA':
+                    return '6' + f'{self.labels[location]:02d}'
+                case 'BRZ':
+                    return '7' + f'{self.labels[location]:02d}'
+                case 'BRP':
+                    return '8' + f'{self.labels[location]:02d}'
+                case 'INP':
+                    return '901'
+                case 'OUT':
+                    return '902'
+                case 'HLT':
+                    return '000'
+                case 'DAT':
+                    return f'{self.variables[instruction_match[1]][0]}'
+                case _:
+                    raise Exception # error
+        except KeyError:
+            raise Exception # unknown or missing variable
+
 
         # if 'INP' in instruction:
         #     return '901'

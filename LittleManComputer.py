@@ -1,31 +1,105 @@
 import re
+import time
+import asyncio
+
+import rich
+from rich.align import Align
+from rich.console import Console
+from rich.live import Live
+from rich.prompt import IntPrompt
+from rich.table import Table
+from rich.console import Console
+from rich.text import Text
 
 import Exceptions
 
 
+def generate_table(memory, program_counter):
+    table = Table(show_header=False, show_lines=True)
+    for col in range(0, 10):
+        table.add_column()
+    # for m in [memory[i:i + 10] for i in range(0, len(memory), 10)]:
+    #     table.add_row(*m)
+
+    current_row = []
+    rows = []
+    added = 0
+    for idx, mem in enumerate(memory):
+        text = Text(mem, style='bold red') if idx == program_counter else mem
+        if added < 10:
+            current_row.append(text)
+        else:
+            rows.append(current_row)
+            current_row = []
+            current_row.append(text)
+            added = 0
+        added += 1
+
+    for r in rows:
+        table.add_row(*r)
+
+    return table
+
+
 class LittleManComputer:
-    def __init__(self):
+    def __init__(self, console: rich.console, clock=None):
         self.memory = ['0'] * 100
         self.accumulator = 0
-        self.programCounter = 0
+        self.program_counter = 0
         self.running = False
+        self.console = console
+        self.clock = clock if clock is not None else 0
+        self.output = []
+        self.program = ''
 
-    def load(self, instructions):
+    def load(self, filename):
+        self.load_memory(ProgramParser(filename).parse())
+        with(open(filename)) as file:
+            self.program = file.read()
+
+    def load_memory(self, instructions):
         for idx, instruction in enumerate(instructions):
             self.memory[idx] = instruction
 
+    def ui(self):
+        screen = Table(show_header=True)
+        screen.add_column('Program')
+        screen.add_column('Memory')
+        screen.add_column('Parameters')
+        screen.add_column('Output')
+
+        output_text = '\n'.join(self.output)
+        parameters_text = f'Accumulator = {self.accumulator}\n' \
+                          f'Program Counter = {self.program_counter}\n' \
+                          f'Clock = {self.clock} ins/s\n\n' \
+                          f'Current Instruction '
+        screen.add_row(Text(self.program), generate_table(self.memory, self.program_counter),
+                       Text(parameters_text, style='green'), Text(output_text, style='cyan'))
+
+        return screen
+
     def run(self):
+        self.console.print('Program started!', style='green')
         self.running = True
         while self.running:
-            self.__instruction_parser__(self.memory[self.programCounter])
+            self.console.clear()
+
+            if self.clock <= 5 and self.clock != 0 and self.memory[self.program_counter] != '000':
+                self.console.print(self.ui())
+
+            self.__instruction_parser__(self.memory[self.program_counter])
+
+            if self.clock != 0:
+                time.sleep(1/self.clock)
+        self.console.print('Program halted!', style='green')
 
     def __reset__(self):
         self.running = False
-        self.programCounter = 0
+        self.program_counter = 0
 
     def __instruction_parser__(self, instruction: str):
         if len(instruction) != 3:
-            raise RuntimeError(f'Not an instruction! Memory location {self.programCounter}')
+            raise RuntimeError(f'Not an instruction! Memory location {self.program_counter}')
 
         instruction_code = instruction[0]
         match instruction_code:
@@ -64,55 +138,58 @@ class LittleManComputer:
                 elif instruction == '902':
                     self.__instruction_out__()
                 else:
-                    raise RuntimeError(f'Unknown instruction! Memory location {self.programCounter}')
+                    raise Exceptions.UnknownInstruction(self.program_counter)
 
             # hlt
             case '0':
                 if instruction == '000':
                     self.__instruction_hlt__()
                 else:
-                    raise RuntimeError(f'Unknown instruction! Memory location {self.programCounter}')
+                    raise Exceptions.UnknownInstruction(self.program_counter)
 
     def __instruction__add__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         self.accumulator += int(self.memory[int(data)])
 
     def __instruction_sub__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         self.accumulator -= int(self.memory[int(data)])
 
     def __instruction_sta__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         self.memory[int(data)] = str(self.accumulator)
 
     def __instruction_lda__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         self.accumulator = int(self.memory[int(data)])
 
     def __instruction_bra__(self, data: str):
-        self.programCounter += 1
-        self.programCounter = int(data)
+        self.program_counter += 1
+        self.program_counter = int(data)
 
     def __instruction_brz__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         if self.accumulator == 0:
-            self.programCounter = int(data)
+            self.program_counter = int(data)
 
     def __instruction_brp__(self, data: str):
-        self.programCounter += 1
+        self.program_counter += 1
         if self.accumulator >= 0:
-            self.programCounter = int(data)
+            self.program_counter = int(data)
 
     def __instruction_inp__(self):
-        self.programCounter += 1
-        self.accumulator = int(input())
+        self.program_counter += 1
+        self.accumulator = IntPrompt.ask("Input a number")
 
     def __instruction_out__(self):
-        self.programCounter += 1
-        print(self.accumulator)
+        self.program_counter += 1
+        self.output.append(str(self.accumulator))
 
     def __instruction_hlt__(self):
+        self.console.clear()
+        self.console.print(self.ui())
         self.__reset__()
+
 
 class ProgramParser:
     instruction_names = ['INP', 'OUT', 'LDA', 'STA', 'ADD', 'SUB', 'BRP', 'BRZ', 'BRA', 'HLT', 'DAT']
@@ -127,12 +204,12 @@ class ProgramParser:
         self.variables = {}
         self.labels = {}
 
+
     def parse(self):
         self.__parse_dat_labels__()
-        print(self.variables)
         compiled_program = []
-        for instruction in self.program:
-            compiled_program.append(self.parse_instruction(instruction))
+        for idx, instruction in enumerate(self.program):
+            compiled_program.append(self.parse_instruction(instruction, idx))
         return compiled_program
 
     def __parse_dat_labels__(self):
@@ -140,71 +217,61 @@ class ProgramParser:
             instruction_match = re.match(self.instruction_pattern, instruction)
             if instruction_match and 'DAT' == instruction_match[2]:
                 if instruction_match[1] == '':
-                    raise Exceptions.UnlabeledDAT
+                    raise Exceptions.UnlabeledDAT(idx)
                 self.variables[instruction_match[1]] = \
                     [0, idx] if instruction_match[3] == '' else [instruction_match[3], idx]
             elif instruction_match and instruction_match[1] != '':
                 self.labels[instruction_match[1]] = idx
 
-    def parse_instruction(self, instruction):
+    def parse_instruction(self, instruction, idx):
         instruction_match = re.match(self.instruction_pattern, instruction)
         if not instruction_match:
-            raise Exception # unknown instruction or error
+            raise Exceptions.UnknownInstruction(idx)
         location = instruction_match[3]
 
-        try:
-            match instruction_match[2]:
-                case 'ADD':
+        match instruction_match[2]:
+            case 'ADD':
+                try:
                     return '1' + f'{self.variables[location][1]:02d}'
-                case 'SUB':
+                except KeyError:
+                    raise Exceptions.UnknownVariable(idx)
+            case 'SUB':
+                try:
                     return '2' + f'{self.variables[location][1]:02d}'
-                case 'STA':
+                except KeyError:
+                    raise Exceptions.UnknownVariable(idx)
+            case 'STA':
+                try:
                     return '3' + f'{self.variables[location][1]:02d}'
-                case 'LDA':
+                except KeyError:
+                    raise Exceptions.UnknownVariable(idx)
+            case 'LDA':
+                try:
                     return '5' + f'{self.variables[location][1]:02d}'
-                case 'BRA':
+                except KeyError:
+                    raise Exceptions.UnknownVariable(idx)
+            case 'BRA':
+                try:
                     return '6' + f'{self.labels[location]:02d}'
-                case 'BRZ':
+                except KeyError:
+                    raise Exceptions.UnknownLocation(idx)
+            case 'BRZ':
+                try:
                     return '7' + f'{self.labels[location]:02d}'
-                case 'BRP':
+                except KeyError:
+                    raise Exceptions.UnknownLocation
+            case 'BRP':
+                try:
                     return '8' + f'{self.labels[location]:02d}'
-                case 'INP':
-                    return '901'
-                case 'OUT':
-                    return '902'
-                case 'HLT':
-                    return '000'
-                case 'DAT':
-                    return f'{self.variables[instruction_match[1]][0]}'
-                case _:
-                    raise Exception # error
-        except KeyError:
-            raise Exception # unknown or missing variable
-
-
-        # if 'INP' in instruction:
-        #     return '901'
-        # elif 'OUT' in instruction:
-        #     return '902'
-        # elif 'LDA' in instruction:
-        #     location = instruction[instruction.index('LDA') + 1]
-        #     return '5' + str(self.variables[location][1])
-        # elif 'STA' in instruction:
-        #     pass
-        # elif 'ADD' in instruction:
-        #     pass
-        # elif 'SUB' in instruction:
-        #     pass
-        # elif 'BRP' in instruction:
-        #     pass
-        # elif 'BRZ' in instruction:
-        #     pass
-        # elif 'BRA' in instruction:
-        #     pass
-        # elif 'HLT' in instruction:
-        #     pass
-        # elif 'DAT' in instruction:
-        #     pass
-        # else:
-        #     # unknown instruction
-        #     raise Exception
+                except KeyError:
+                    raise Exceptions.UnknownLocation(idx)
+            case 'INP':
+                return '901'
+            case 'OUT':
+                return '902'
+            case 'HLT':
+                return '000'
+            case 'DAT':
+                return f'{self.variables[instruction_match[1]][0]}'
+            case _:
+                raise Exceptions.UnknownInstruction(idx)

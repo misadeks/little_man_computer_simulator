@@ -51,9 +51,12 @@ class LittleManComputer:
         self.clock = clock if clock is not None else 0
         self.output = []
         self.program = ''
+        self.instructions = []
 
     def load(self, filename):
-        self.load_memory(ProgramParser(filename).parse())
+        parsed_program = ProgramParser(filename).parse()
+        self.load_memory([x[0] for x in parsed_program])
+        self.instructions = [x[1] for x in parsed_program]
         with(open(filename)) as file:
             self.program = file.read()
 
@@ -72,7 +75,7 @@ class LittleManComputer:
         parameters_text = f'Accumulator = {self.accumulator}\n' \
                           f'Program Counter = {self.program_counter}\n' \
                           f'Clock = {self.clock} ins/s\n\n' \
-                          f'Current Instruction '
+                          f'Instruction Name: \n {self.instructions[self.program_counter]["name"]}'
         screen.add_row(Text(self.program), generate_table(self.memory, self.program_counter),
                        Text(parameters_text, style='green'), Text(output_text, style='cyan'))
 
@@ -90,7 +93,7 @@ class LittleManComputer:
             self.__instruction_parser__(self.memory[self.program_counter])
 
             if self.clock != 0:
-                time.sleep(1/self.clock)
+                time.sleep(1 / self.clock)
         self.console.print('Program halted!', style='green')
 
     def __reset__(self):
@@ -204,7 +207,6 @@ class ProgramParser:
         self.variables = {}
         self.labels = {}
 
-
     def parse(self):
         self.__parse_dat_labels__()
         compiled_program = []
@@ -232,46 +234,53 @@ class ProgramParser:
         match instruction_match[2]:
             case 'ADD':
                 try:
-                    return '1' + f'{self.variables[location][1]:02d}'
+                    return ('1' + f'{self.variables[location][1]:02d}',
+                            {'name': "ADD", 'operand': self.variables[location][1]})
                 except KeyError:
                     raise Exceptions.UnknownVariable(idx)
             case 'SUB':
                 try:
-                    return '2' + f'{self.variables[location][1]:02d}'
+                    return ('2' + f'{self.variables[location][1]:02d}',
+                            {'name': "SUBTRACT", 'operand': self.variables[location][1]})
                 except KeyError:
                     raise Exceptions.UnknownVariable(idx)
             case 'STA':
                 try:
-                    return '3' + f'{self.variables[location][1]:02d}'
+                    return ('3' + f'{self.variables[location][1]:02d}',
+                           {'name': "STORE", 'operand': self.variables[location][1]})
                 except KeyError:
                     raise Exceptions.UnknownVariable(idx)
             case 'LDA':
                 try:
-                    return '5' + f'{self.variables[location][1]:02d}'
+                    return ('5' + f'{self.variables[location][1]:02d}',
+                           {'name': "LOAD", 'operand': self.variables[location][1]})
                 except KeyError:
                     raise Exceptions.UnknownVariable(idx)
             case 'BRA':
                 try:
-                    return '6' + f'{self.labels[location]:02d}'
+                    return ('6' + f'{self.labels[location]:02d}',
+                            {'name': "BRANCH", 'operand': self.labels[location]})
                 except KeyError:
                     raise Exceptions.UnknownLocation(idx)
             case 'BRZ':
                 try:
-                    return '7' + f'{self.labels[location]:02d}'
+                    return ('7' + f'{self.labels[location]:02d}',
+                            {'name': "BRANCH IF ZERO", 'operand': self.labels[location]})
                 except KeyError:
                     raise Exceptions.UnknownLocation
             case 'BRP':
                 try:
-                    return '8' + f'{self.labels[location]:02d}'
+                    return ('8' + f'{self.labels[location]:02d}',
+                            {'name': "BRANCH IF POSITIVE", 'operand': self.labels[location]})
                 except KeyError:
                     raise Exceptions.UnknownLocation(idx)
             case 'INP':
-                return '901'
+                return ('901', {'name': "INPUT", 'operand': None})
             case 'OUT':
-                return '902'
+                return ('902', {'name': "OUTPUT", 'operand': None})
             case 'HLT':
-                return '000'
+                return ('000', {'name': "HALT", 'operand': None})
             case 'DAT':
-                return f'{self.variables[instruction_match[1]][0]}'
+                return (f'{self.variables[instruction_match[1]][0]}', None)
             case _:
                 raise Exceptions.UnknownInstruction(idx)
